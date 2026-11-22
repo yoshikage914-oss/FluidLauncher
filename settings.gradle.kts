@@ -1,4 +1,4 @@
-rootpluginManagement {
+pluginManagement {
     repositories { google(); mavenCentral(); gradlePluginPortal() }
 }
 dependencyResolutionManagement {
