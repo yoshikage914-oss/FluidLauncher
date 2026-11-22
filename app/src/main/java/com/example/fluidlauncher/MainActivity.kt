@@ -510,4 +510,3 @@ class MainActivity : Activity() {
                 val a = rest.getOrNull(ri * 2 + ci)
                 val lp = LinearLayout.LayoutParams(mini, mini)
                 lp.setMargins(dp(2), dp(2), dp(2), dp(2))
-              
