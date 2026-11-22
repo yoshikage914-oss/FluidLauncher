@@ -2,8 +2,12 @@ package com.example.fluidlauncher
 
 import android.app.Activity
 import android.content.Intent
+import android.graphics.Color
 import android.graphics.Outline
+import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -11,99 +15,193 @@ import android.provider.MediaStore
 import android.provider.Settings
 import android.text.Editable
 import android.text.TextWatcher
+import android.view.Gravity
 import android.view.GestureDetector
-import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
-import android.view.WindowInsets
 import android.view.animation.DecelerateInterpolator
 import android.view.inputmethod.InputMethodManager
+import android.widget.BaseAdapter
 import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.GridView
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.TextClock
 import android.widget.TextView
-import androidx.recyclerview.widget.GridLayoutManager
-import androidx.recyclerview.widget.RecyclerView
 import kotlin.math.abs
 
-data class AppEntry(val label: String, val pkg: String, val intent: Intent, val icon: Drawable)
-
-/** Rounds any icon into a ColorOS-style squircle-ish rounded square. */
-fun ImageView.squircle() {
-    clipToOutline = true
-    outlineProvider = object : ViewOutlineProvider() {
-        override fun getOutline(v: View, o: Outline) {
-            o.setRoundRect(0, 0, v.width, v.height, v.width * 0.30f)
-        }
-    }
-}
+class AppEntry(val label: String, val pkg: String, val intent: Intent, val icon: Drawable)
 
 class MainActivity : Activity() {
 
-    private lateinit var home: View
-    private lateinit var drawer: View
-    private lateinit var grid: RecyclerView
-    private lateinit var dock: LinearLayout
-    private lateinit var search: EditText
-    private lateinit var gestures: GestureDetector
+    private val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
+    private val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
 
-    private var allApps = listOf<AppEntry>()
+    private var allApps: List<AppEntry> = emptyList()
+    private var shown: List<AppEntry> = emptyList()
     private var drawerOpen = false
 
-    private val adapter = AppAdapter(
-        onClick = { launch(it) },
-        onLong = { openAppInfo(it) }
-    )
+    private lateinit var home: LinearLayout
+    private lateinit var drawer: LinearLayout
+    private lateinit var grid: GridView
+    private lateinit var dock: LinearLayout
+    private lateinit var search: EditText
+    private lateinit var detector: GestureDetector
+
+    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+
+    private fun glass(color: Int, radiusDp: Int): GradientDrawable {
+        val d = GradientDrawable()
+        d.setColor(color)
+        d.cornerRadius = dp(radiusDp).toFloat()
+        return d
+    }
+
+    private fun squircle(iv: ImageView) {
+        iv.clipToOutline = true
+        iv.outlineProvider = object : ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: Outline) {
+                outline.setRoundRect(0, 0, view.width, view.height, view.width * 0.30f)
+            }
+        }
+    }
+
+    private fun makeCell(): LinearLayout {
+        val cell = LinearLayout(this)
+        cell.orientation = LinearLayout.VERTICAL
+        cell.gravity = Gravity.CENTER_HORIZONTAL
+        cell.setPadding(dp(4), dp(10), dp(4), dp(10))
+        val icon = ImageView(this)
+        squircle(icon)
+        cell.addView(icon, LinearLayout.LayoutParams(dp(58), dp(58)))
+        val label = TextView(this)
+        label.setTextColor(Color.WHITE)
+        label.textSize = 11f
+        label.maxLines = 1
+        label.gravity = Gravity.CENTER
+        label.ellipsize = android.text.TextUtils.TruncateAt.END
+        val lp = LinearLayout.LayoutParams(MATCH, WRAP)
+        lp.topMargin = dp(6)
+        cell.addView(label, lp)
+        return cell
+    }
+
+    private val gridAdapter = object : BaseAdapter() {
+        override fun getCount(): Int = shown.size
+        override fun getItem(position: Int): Any = shown[position]
+        override fun getItemId(position: Int): Long = position.toLong()
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
+            val app = shown[position]
+            val cell = (convertView as? LinearLayout) ?: makeCell()
+            (cell.getChildAt(0) as ImageView).setImageDrawable(app.icon)
+            (cell.getChildAt(1) as TextView).text = app.label
+            return cell
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.setDecorFitsSystemWindowsCompat()
-        setContentView(R.layout.activity_main)
 
-        home = findViewById(R.id.home)
-        drawer = findViewById(R.id.drawer)
-        grid = findViewById(R.id.grid)
-        dock = findViewById(R.id.dock)
-        search = findViewById(R.id.search)
+        val root = FrameLayout(this)
 
-        findViewById<View>(R.id.root).setOnApplyWindowInsetsListener { _, insets ->
-            val top: Int
-            val bottom: Int
-            if (Build.VERSION.SDK_INT >= 30) {
-                val bars = insets.getInsets(WindowInsets.Type.systemBars())
-                top = bars.top; bottom = bars.bottom
-            } else {
-                @Suppress("DEPRECATION")
-                top = insets.systemWindowInsetTop
-                @Suppress("DEPRECATION")
-                bottom = insets.systemWindowInsetBottom
-            }
-            home.setPadding(home.paddingLeft, top, home.paddingRight, bottom)
-            drawer.setPadding(0, top, 0, 0)
-            grid.setPadding(grid.paddingLeft, grid.paddingTop, grid.paddingRight, bottom + 48)
-            insets
-        }
+        home = LinearLayout(this)
+        home.orientation = LinearLayout.VERTICAL
+        home.gravity = Gravity.CENTER_HORIZONTAL
+        home.setPadding(dp(20), dp(40), dp(20), dp(24))
 
-        grid.layoutManager = GridLayoutManager(this, 4)
-        grid.adapter = adapter
+        val clock = TextClock(this)
+        clock.format12Hour = "h:mm"
+        clock.format24Hour = "HH:mm"
+        clock.textSize = 80f
+        clock.setTextColor(Color.WHITE)
+        clock.typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
+        val clockLp = LinearLayout.LayoutParams(WRAP, WRAP)
+        clockLp.topMargin = dp(48)
+        home.addView(clock, clockLp)
+
+        val date = TextClock(this)
+        date.format12Hour = "EEEE, MMM d"
+        date.format24Hour = "EEEE, MMM d"
+        date.textSize = 17f
+        date.setTextColor(Color.WHITE)
+        home.addView(date, LinearLayout.LayoutParams(WRAP, WRAP))
+
+        home.addView(View(this), LinearLayout.LayoutParams(MATCH, 0, 1f))
+
+        val hint = TextView(this)
+        hint.text = "Swipe up for apps"
+        hint.textSize = 12f
+        hint.setTextColor(Color.parseColor("#B3FFFFFF"))
+        val hintLp = LinearLayout.LayoutParams(WRAP, WRAP)
+        hintLp.bottomMargin = dp(14)
+        hintLp.gravity = Gravity.CENTER_HORIZONTAL
+        home.addView(hint, hintLp)
+
+        dock = LinearLayout(this)
+        dock.orientation = LinearLayout.HORIZONTAL
+        dock.gravity = Gravity.CENTER
+        dock.setPadding(dp(10), dp(14), dp(10), dp(14))
+        dock.background = glass(Color.parseColor("#59FFFFFF"), 34)
+        home.addView(dock, LinearLayout.LayoutParams(MATCH, WRAP))
+
+        drawer = LinearLayout(this)
+        drawer.orientation = LinearLayout.VERTICAL
+        val r = dp(36).toFloat()
+        val bg = GradientDrawable()
+        bg.setColor(Color.parseColor("#66FFFFFF"))
+        bg.cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
+        drawer.background = bg
+        drawer.setPadding(0, dp(40), 0, 0)
+        drawer.visibility = View.INVISIBLE
+
+        search = EditText(this)
+        search.hint = "Search apps"
+        search.setSingleLine(true)
+        search.setTextColor(Color.WHITE)
+        search.setHintTextColor(Color.parseColor("#CCFFFFFF"))
+        search.textSize = 16f
+        search.setPadding(dp(22), 0, dp(22), 0)
+        search.background = glass(Color.parseColor("#4DFFFFFF"), 28)
+        val searchLp = LinearLayout.LayoutParams(MATCH, dp(52))
+        searchLp.setMargins(dp(20), dp(12), dp(20), dp(8))
+        drawer.addView(search, searchLp)
+
+        grid = GridView(this)
+        grid.numColumns = 4
+        grid.selector = ColorDrawable(Color.TRANSPARENT)
+        grid.setPadding(dp(8), 0, dp(8), dp(48))
+        grid.clipToPadding = false
+        grid.adapter = gridAdapter
+        grid.setOnItemClickListener { _, _, pos, _ -> launch(shown[pos]) }
+        grid.setOnItemLongClickListener { _, _, pos, _ -> openInfo(shown[pos]); true }
+        drawer.addView(grid, LinearLayout.LayoutParams(MATCH, MATCH))
+
+        root.addView(home, FrameLayout.LayoutParams(MATCH, MATCH))
+        root.addView(drawer, FrameLayout.LayoutParams(MATCH, MATCH))
+        setContentView(root)
 
         search.addTextChangedListener(object : TextWatcher {
             override fun afterTextChanged(s: Editable?) {
-                val q = s?.toString()?.trim().orEmpty()
-                adapter.items = if (q.isEmpty()) allApps
+                val q = s?.toString()?.trim() ?: ""
+                shown = if (q.isEmpty()) allApps
                 else allApps.filter { it.label.contains(q, ignoreCase = true) }
+                gridAdapter.notifyDataSetChanged()
             }
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
             override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
         })
 
-        gestures = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+        detector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
-                if (abs(vy) < 900 || abs(vy) < abs(vx)) return false
-                if (vy < 0 && !drawerOpen) setDrawer(true)
-                else if (vy > 0 && drawerOpen && !grid.canScrollVertically(-1)) setDrawer(false)
+                if (abs(vy) < 900f || abs(vy) < abs(vx)) return false
+                if (vy < 0f && !drawerOpen) {
+                    setDrawer(true)
+                } else if (vy > 0f && drawerOpen && !grid.canScrollVertically(-1)) {
+                    setDrawer(false)
+                }
                 return false
             }
         })
@@ -122,33 +220,33 @@ class MainActivity : Activity() {
         if (drawerOpen) setDrawer(false)
     }
 
-    @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         if (drawerOpen) setDrawer(false)
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-        gestures.onTouchEvent(ev)
+        detector.onTouchEvent(ev)
         return super.dispatchTouchEvent(ev)
     }
 
     private fun loadApps() {
-        val main = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-        allApps = packageManager.queryIntentActivities(main, 0)
-            .filter { it.activityInfo.packageName != packageName }
-            .map {
-                val pkg = it.activityInfo.packageName
-                AppEntry(
-                    label = it.loadLabel(packageManager).toString(),
-                    pkg = pkg,
-                    intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-                        .setClassName(pkg, it.activityInfo.name)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                    icon = it.loadIcon(packageManager)
-                )
-            }
-            .sortedBy { it.label.lowercase() }
-        adapter.items = allApps
+        val main = Intent(Intent.ACTION_MAIN)
+        main.addCategory(Intent.CATEGORY_LAUNCHER)
+        val list = packageManager.queryIntentActivities(main, 0)
+        val result = ArrayList<AppEntry>()
+        for (ri in list) {
+            val pkg = ri.activityInfo.packageName
+            if (pkg == packageName) continue
+            val launchIntent = Intent(Intent.ACTION_MAIN)
+            launchIntent.addCategory(Intent.CATEGORY_LAUNCHER)
+            launchIntent.setClassName(pkg, ri.activityInfo.name)
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            result.add(AppEntry(ri.loadLabel(packageManager).toString(), pkg, launchIntent, ri.loadIcon(packageManager)))
+        }
+        result.sortBy { it.label.lowercase() }
+        allApps = result
+        shown = result
+        gridAdapter.notifyDataSetChanged()
         buildDock()
     }
 
@@ -160,21 +258,18 @@ class MainActivity : Activity() {
             Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com")),
             Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)
         )
-        val size = (60 * resources.displayMetrics.density).toInt()
-        probes.mapNotNull { p ->
-            val pkg = packageManager.resolveActivity(p, 0)?.activityInfo?.packageName
-            allApps.firstOrNull { it.pkg == pkg }
-        }.distinctBy { it.pkg }.forEach { app ->
-            val iv = ImageView(this).apply {
-                setImageDrawable(app.icon)
-                squircle()
-                setOnClickListener { launch(app) }
-            }
-            dock.addView(iv, LinearLayout.LayoutParams(size, size).apply {
-                weight = 0f
-                leftMargin = (14 * resources.displayMetrics.density).toInt()
-                rightMargin = leftMargin
-            })
+        val used = HashSet<String>()
+        for (p in probes) {
+            val pkg = packageManager.resolveActivity(p, 0)?.activityInfo?.packageName ?: continue
+            if (!used.add(pkg)) continue
+            val app = allApps.firstOrNull { it.pkg == pkg } ?: continue
+            val iv = ImageView(this)
+            iv.setImageDrawable(app.icon)
+            squircle(iv)
+            iv.setOnClickListener { launch(app) }
+            val lp = LinearLayout.LayoutParams(dp(60), dp(60))
+            lp.setMargins(dp(12), 0, dp(12), 0)
+            dock.addView(iv, lp)
         }
     }
 
@@ -183,71 +278,44 @@ class MainActivity : Activity() {
         drawerOpen = open
         val h = drawer.height.toFloat()
         if (open) drawer.visibility = View.VISIBLE
-        drawer.animate().translationY(if (open) 0f else h).setDuration(320)
+        drawer.animate()
+            .translationY(if (open) 0f else h)
+            .setDuration(320)
             .setInterpolator(DecelerateInterpolator(1.6f))
             .withEndAction { if (!open) drawer.visibility = View.INVISIBLE }
             .start()
-        home.animate().alpha(if (open) 0f else 1f)
-            .scaleX(if (open) 0.92f else 1f).scaleY(if (open) 0.92f else 1f)
-            .setDuration(320).start()
+        home.animate()
+            .alpha(if (open) 0f else 1f)
+            .scaleX(if (open) 0.92f else 1f)
+            .scaleY(if (open) 0.92f else 1f)
+            .setDuration(320)
+            .start()
         if (Build.VERSION.SDK_INT >= 31) {
-            try { window.setBackgroundBlurRadius(if (open) 90 else 0) } catch (_: Throwable) {}
+            try {
+                window.setBackgroundBlurRadius(if (open) 90 else 0)
+            } catch (e: Throwable) {
+            }
         }
         if (!open) {
             search.setText("")
             search.clearFocus()
-            (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager)
-                .hideSoftInputFromWindow(search.windowToken, 0)
-            grid.scrollToPosition(0)
+            val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+            imm.hideSoftInputFromWindow(search.windowToken, 0)
+            grid.setSelection(0)
         }
     }
 
     private fun launch(app: AppEntry) {
-        try { startActivity(app.intent) } catch (_: Exception) {}
+        try {
+            startActivity(app.intent)
+        } catch (e: Exception) {
+        }
         if (drawerOpen) setDrawer(false)
     }
 
-    private fun openAppInfo(app: AppEntry) {
-        startActivity(
-            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${app.pkg}"))
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        )
+    private fun openInfo(app: AppEntry) {
+        val i = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + app.pkg))
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startActivity(i)
     }
-}
-
-private fun android.view.Window.setDecorFitsSystemWindowsCompat() {
-    if (Build.VERSION.SDK_INT >= 30) setDecorFitsSystemWindows(false)
-    else @Suppress("DEPRECATION") decorView.systemUiVisibility =
-        View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
-            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
-            View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-}
-
-class AppAdapter(
-    private val onClick: (AppEntry) -> Unit,
-    private val onLong: (AppEntry) -> Unit
-) : RecyclerView.Adapter<AppAdapter.VH>() {
-
-    var items: List<AppEntry> = emptyList()
-        set(value) { field = value; notifyDataSetChanged() }
-
-    class VH(v: View) : RecyclerView.ViewHolder(v) {
-        val icon: ImageView = v.findViewById(R.id.icon)
-        val label: TextView = v.findViewById(R.id.label)
-    }
-
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
-        val v = LayoutInflater.from(parent.context).inflate(R.layout.item_app, parent, false)
-        return VH(v).also { it.icon.squircle() }
-    }
-
-    override fun onBindViewHolder(h: VH, position: Int) {
-        val app = items[position]
-        h.icon.setImageDrawable(app.icon)
-        h.label.text = app.label
-        h.itemView.setOnClickListener { onClick(app) }
-        h.itemView.setOnLongClickListener { onLong(app); true }
-    }
-
-    override fun getItemCount() = items.size
 }
