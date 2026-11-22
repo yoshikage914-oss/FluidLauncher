@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:id="@+id/home"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:paddingLeft="20dp"
+        android:paddingRight="20dp">
+
+        <TextClock
+            android:id="@+id/clock"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="72dp"
+            android:format12Hour="h:mm"
+            android:format24Hour="HH:mm"
+            android:fontFamily="sans-serif-light"
+            android:shadowColor="#33000000"
+            android:shadowRadius="12"
+            android:textColor="#FFFFFF"
+            android:textSize="88sp" />
+
+        <TextClock
+            android:id="@+id/date"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:format12Hour="EEEE, MMM d"
+            android:format24Hour="EEEE, MMM d"
+            android:shadowColor="#33000000"
+            android:shadowRadius="8"
+            android:textColor="#F2FFFFFF"
+            android:textSize="17sp" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="14dp"
+            android:text="Swipe up for apps"
+            android:textColor="#B3FFFFFF"
+            android:textSize="12sp" />
+
+        <LinearLayout
+            android:id="@+id/dock"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="20dp"
+            android:background="@drawable/bg_dock"
+            android:gravity="center"
+            android:orientation="horizontal"
+            android:padding="14dp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/drawer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/bg_glass"
+        android:orientation="vertical"
+        android:visibility="invisible">
+
+        <EditText
+            android:id="@+id/search"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginLeft="20dp"
+            android:layout_marginTop="12dp"
+            android:layout_marginRight="20dp"
+            android:layout_marginBottom="8dp"
+            android:background="@drawable/bg_search"
+            android:hint="Search apps"
+            android:imeOptions="actionDone"
+            android:inputType="text"
+            android:maxLines="1"
+            android:paddingLeft="22dp"
+            android:paddingRight="22dp"
+            android:textColor="#FFFFFF"
+            android:textColorHint="#CCFFFFFF"
+            android:textSize="16sp" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/grid"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:paddingLeft="8dp"
+            android:paddingRight="8dp"
+            android:paddingBottom="48dp"
+            android:overScrollMode="never" />
+    </LinearLayout>
+</FrameLayout>
