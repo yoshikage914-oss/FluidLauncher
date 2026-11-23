@@ -1,4 +1,3 @@
-
 package com.example.fluidlauncher
 import android.app.Activity
 import android.app.WallpaperManager
