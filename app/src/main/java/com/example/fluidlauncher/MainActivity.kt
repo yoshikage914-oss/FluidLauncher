@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Process
 import android.text.Editable
+import android.text.TextUtils
 import android.text.TextWatcher
 import android.view.GestureDetector
 import android.view.Gravity
@@ -27,7 +28,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.updatePadding
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import kotlin.math.abs
@@ -88,8 +88,8 @@ class MainActivity : AppCompatActivity() {
 
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            home.updatePadding(top = baseHomeTop + bars.top, bottom = baseHomeBottom + bars.bottom)
-            drawer.updatePadding(top = baseDrawerTop + bars.top, bottom = baseDrawerBottom + bars.bottom)
+            home.setPadding(home.paddingLeft, baseHomeTop + bars.top, home.paddingRight, baseHomeBottom + bars.bottom)
+            drawer.setPadding(drawer.paddingLeft, baseDrawerTop + bars.top, drawer.paddingRight, baseDrawerBottom + bars.bottom)
             insets
         }
     }
@@ -112,13 +112,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshApps() {
         val launcherApps = getSystemService(LAUNCHER_APPS_SERVICE) as LauncherApps
+        val selfPkg = packageName
         val apps = launcherApps.getActivityList(null, Process.myUserHandle())
             .asSequence()
-            .filter { it.componentName.packageName != packageName }
+            .filter { it.componentName.packageName != selfPkg }
             .map { info ->
+                val rawLabel = info.label?.toString()?.trim()
+                val resolvedLabel = if (rawLabel.isNullOrEmpty()) info.componentName.packageName else rawLabel
                 OneUiApp(
-                    label = info.label?.toString()?.trim().takeUnless { it.isNullOrEmpty() }
-                        ?: info.componentName.packageName,
+                    label = resolvedLabel,
                     packageName = info.componentName.packageName,
                     icon = info.getBadgedIcon(0)
                 )
@@ -328,7 +330,7 @@ class MainActivity : AppCompatActivity() {
                 setTextColor(0xF5FFFFFF.toInt())
                 textSize = 11.5f
                 maxLines = 1
-                ellipsize = android.text.TextUtils.TruncateAt.END
+                ellipsize = TextUtils.TruncateAt.END
                 gravity = Gravity.CENTER
                 setPadding(dp(2), dp(6), dp(2), 0)
             }
