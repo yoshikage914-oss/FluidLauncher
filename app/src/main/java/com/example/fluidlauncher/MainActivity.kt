@@ -1,6 +1,5 @@
 
 package com.example.fluidlauncher
-
 import android.app.Activity
 import android.app.WallpaperManager
 import android.content.Context
