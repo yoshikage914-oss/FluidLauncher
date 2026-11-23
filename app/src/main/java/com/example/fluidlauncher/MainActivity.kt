@@ -1,325 +1,337 @@
+
 package com.example.fluidlauncher
+
 import android.app.Activity
-import android.app.WallpaperManager
-import android.content.Context
+import android.app.AlertDialog
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.media.AudioManager
-import android.net.Uri
 import android.os.Bundle
-import android.provider.Settings
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.*
 import android.text.TextWatcher
 import android.text.Editable
-import android.text.format.DateFormat
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import kotlin.math.roundToInt
+import android.widget.TextClock
+import kotlin.math.abs
 
 class MainActivity : Activity() {
 
-    private lateinit var root: FrameLayout
-    private lateinit var content: LinearLayout
-    private lateinit var audio: AudioManager
-
-    private val apps = mutableListOf<android.content.pm.ResolveInfo>()
-
-    private var darkMode = true
-    private var labels = true
-    private var columns = 4
-
-    private fun dp(v: Int) =
-        (v * resources.displayMetrics.density).roundToInt()
-
-    private fun glass(
-        color: String = "#66777777",
-        radius: Int = 28
-    ) = GradientDrawable().apply {
-        setColor(Color.parseColor(color))
-        cornerRadius = dp(radius).toFloat()
-        setStroke(dp(1), Color.parseColor("#35FFFFFF"))
+    private val prefs by lazy {
+        getSharedPreferences("fluid_launcher", MODE_PRIVATE)
     }
 
-    private fun label(
+    private lateinit var root: FrameLayout
+    private lateinit var home: LinearLayout
+    private lateinit var drawer: LinearLayout
+    private lateinit var grid: GridView
+    private lateinit var search: EditText
+
+    private var apps = mutableListOf<AppItem>()
+    private var filtered = mutableListOf<AppItem>()
+
+    private var startY = 0f
+    private var drawerOpen = false
+
+    private val darkMode get() = prefs.getBoolean("dark", true)
+
+    private data class AppItem(
+        val name: String,
+        val packageName: String,
+        val icon: android.graphics.drawable.Drawable
+    )
+
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density).toInt()
+
+    private fun background(color: Int, radius: Int): GradientDrawable {
+        return GradientDrawable().apply {
+            setColor(color)
+            cornerRadius = dp(radius).toFloat()
+        }
+    }
+
+    private fun text(
         value: String,
-        size: Float = 15f,
-        color: Int = Color.WHITE
+        size: Float,
+        color: Int,
+        bold: Boolean = false
     ) = TextView(this).apply {
         text = value
         textSize = size
         setTextColor(color)
-        gravity = Gravity.CENTER_VERTICAL
-    }
-
-    private fun button(
-        value: String,
-        action: () -> Unit
-    ) = TextView(this).apply {
-        text = value
-        textSize = 15f
         gravity = Gravity.CENTER
-        setTextColor(Color.WHITE)
-        setPadding(dp(12), dp(13), dp(12), dp(13))
-        background = glass("#66777777", 24)
-        setOnClickListener { action() }
-    }
-
-    private fun column() = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-    }
-
-    private fun row() = LinearLayout(this).apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-    }
-
-    private fun setup(title: String) {
-        root = FrameLayout(this)
-
-        val page = column().apply {
-            setPadding(dp(18), dp(12), dp(18), dp(18))
-            background = GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                intArrayOf(
-                    Color.rgb(20, 21, 29),
-                    Color.rgb(37, 39, 49),
-                    Color.rgb(18, 19, 26)
-                )
-            )
-        }
-
-        val header = row()
-
-        header.addView(
-            label(title, 25f),
-            LinearLayout.LayoutParams(0, dp(65), 1f)
-        )
-
-        header.addView(
-            button("⚙") { showSettings() },
-            LinearLayout.LayoutParams(dp(55), dp(55))
-        )
-
-        page.addView(header)
-
-        content = column()
-
-        page.addView(
-            content,
-            LinearLayout.LayoutParams(-1, 0, 1f)
-        )
-
-        root.addView(page, FrameLayout.LayoutParams(-1, -1))
-        setContentView(root)
+        if (bold) typeface = Typeface.DEFAULT_BOLD
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
 
-        window.statusBarColor = Color.rgb(20, 21, 29)
-        window.navigationBarColor = Color.rgb(20, 21, 29)
+        window.decorView.systemUiVisibility =
+            View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+            View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
 
+        buildHome()
         loadApps()
-        showHome()
     }
 
-    private fun loadApps() {
-        apps.clear()
+    private fun buildHome() {
+        root = FrameLayout(this)
 
-        val intent = Intent(Intent.ACTION_MAIN)
-            .addCategory(Intent.CATEGORY_LAUNCHER)
+        home = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(18), dp(55), dp(18), dp(25))
+            setBackgroundColor(Color.rgb(18, 20, 27))
+        }
 
-        packageManager.queryIntentActivities(intent, 0)
-            .filter { it.activityInfo.packageName != packageName }
-            .sortedBy {
-                it.loadLabel(packageManager).toString().lowercase()
-            }
-            .forEach { apps.add(it) }
-    }
+        // Top date
+        val date = TextClock(this).apply {
+            format12Hour = "EEEE, d MMMM"
+            format24Hour = "EEEE, d MMMM"
+            textSize = 15f
+            setTextColor(Color.LTGRAY)
+        }
 
-    // HOME SCREEN
+        home.addView(date)
 
-    private fun showHome() {
-        setup("FluidLauncher")
+        // Large HyperOS-inspired clock
+        val clock = TextClock(this).apply {
+            format12Hour = "h:mm"
+            format24Hour = "HH:mm"
+            textSize = 76f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.create(
+                "sans-serif-light",
+                Typeface.NORMAL
+            )
+            gravity = Gravity.CENTER
+        }
 
-        val clock = label(
-            SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()),
-            66f
+        home.addView(
+            clock,
+            LinearLayout.LayoutParams(-1, dp(125))
         )
-        clock.gravity = Gravity.CENTER
 
-        content.addView(clock)
+        // Weather card placeholder
+        val weather = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(20), dp(14), dp(20), dp(14))
+            background = background(
+                Color.rgb(38, 43, 55), 25
+            )
+        }
 
-        val date = label(
-            SimpleDateFormat(
-                "EEEE, dd MMMM",
-                Locale.getDefault()
-            ).format(Date()),
-            15f,
+        weather.addView(
+            text("☀", 30f, Color.WHITE)
+        )
+
+        weather.addView(
+            text("  Weather  •  Add weather widget", 14f, Color.WHITE)
+        )
+
+        home.addView(
+            weather,
+            LinearLayout.LayoutParams(-1, dp(75)).apply {
+                topMargin = dp(18)
+            }
+        )
+
+        // Quick shortcuts
+        val shortcuts = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+
+        addShortcut(shortcuts, "Apps", "▦") {
+            showDrawer()
+        }
+
+        addShortcut(shortcuts, "Settings", "⚙") {
+            openSettings()
+        }
+
+        addShortcut(shortcuts, "Wallpaper", "◈") {
+            openWallpaperPicker()
+        }
+
+        addShortcut(shortcuts, "Control", "☷") {
+            openControlCenter()
+        }
+
+        home.addView(
+            shortcuts,
+            LinearLayout.LayoutParams(-1, dp(100)).apply {
+                topMargin = dp(12)
+            }
+        )
+
+        val spacer = Space(this)
+        home.addView(
+            spacer,
+            LinearLayout.LayoutParams(1, 0, 1f)
+        )
+
+        // App drawer button
+        val appButton = text(
+            "Swipe up or tap to open apps",
+            13f,
             Color.LTGRAY
         )
 
-        date.gravity = Gravity.CENTER
-        content.addView(date)
-
-        val weather = button("☁   Weather   •   Add weather provider") {
-            startActivity(Intent(Settings.ACTION_SETTINGS))
+        appButton.setOnClickListener {
+            showDrawer()
         }
 
-        val weatherLp = LinearLayout.LayoutParams(-1, dp(55))
-        weatherLp.setMargins(0, dp(22), 0, dp(12))
-        content.addView(weather, weatherLp)
+        home.addView(appButton)
 
-        content.addView(
-            button("⌕       Search applications") { showDrawer() }
+        // Bottom dock
+        val dock = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            background = background(
+                Color.rgb(43, 48, 61), 32
+            )
+        }
+
+        home.addView(
+            dock,
+            LinearLayout.LayoutParams(-1, dp(75)).apply {
+                topMargin = dp(15)
+            }
         )
 
-        val shortcuts = row()
+        root.addView(home)
 
-        listOf(
-            "Apps" to { showDrawer() },
-            "Control" to { showControlCenter() },
-            "Wallpaper" to { chooseWallpaper() }
-        ).forEach { item ->
-            val lp = LinearLayout.LayoutParams(0, dp(76), 1f)
-            lp.setMargins(dp(4), dp(12), dp(4), dp(12))
-            shortcuts.addView(button(item.first, item.second), lp)
-        }
+        buildDrawer()
 
-        content.addView(shortcuts)
-
-        val title = label("Your applications", 18f)
-        title.setPadding(0, dp(12), 0, dp(8))
-        content.addView(title)
-
-        val scroll = ScrollView(this)
-        val grid = GridLayout(this).apply {
-            columnCount = columns
-        }
-
-        apps.take(16).forEach {
-            grid.addView(
-                appTile(it),
-                GridLayout.LayoutParams().apply {
-                    width = resources.displayMetrics.widthPixels / columns
-                    height = dp(100)
+        root.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    startY = event.y
+                    true
                 }
-            )
-        }
 
-        scroll.addView(grid)
-        content.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-
-        val dock = row().apply {
-            background = glass("#99505050", 38)
-            setPadding(dp(10), dp(8), dp(10), dp(8))
-            gravity = Gravity.CENTER
-        }
-
-        listOf("☎", "🌐", "📷", "▦").forEachIndexed { index, icon ->
-            val item = label(icon, 26f)
-            item.gravity = Gravity.CENTER
-            item.setOnClickListener {
-                when (index) {
-                    0 -> openSystem(Settings.ACTION_DIAL)
-                    1 -> showDrawer()
-                    2 -> openSystem(Settings.ACTION_SETTINGS)
-                    3 -> showDrawer()
+                MotionEvent.ACTION_UP -> {
+                    val difference = startY - event.y
+                    if (difference > dp(65)) showDrawer()
+                    true
                 }
+
+                else -> true
             }
-            dock.addView(item, LinearLayout.LayoutParams(0, dp(55), 1f))
         }
 
-        content.addView(dock)
+        home.setOnLongClickListener {
+            showPersonalization()
+            true
+        }
+
+        setContentView(root)
     }
 
-    private fun appTile(info: android.content.pm.ResolveInfo): View {
-        val cell = column().apply {
+    private fun addShortcut(
+        parent: LinearLayout,
+        title: String,
+        symbol: String,
+        action: () -> Unit
+    ) {
+        val item = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setPadding(dp(4), dp(6), dp(4), dp(6))
+            isClickable = true
+            setOnClickListener { action() }
         }
 
-        val icon = ImageView(this).apply {
-            setImageDrawable(info.loadIcon(packageManager))
-            scaleType = ImageView.ScaleType.FIT_CENTER
-        }
+        item.addView(
+            text(symbol, 27f, Color.WHITE)
+        )
 
-        cell.addView(icon, LinearLayout.LayoutParams(dp(48), dp(48)))
+        item.addView(
+            text(title, 11f, Color.LTGRAY)
+        )
 
-        if (labels) {
-            val name = label(
-                info.loadLabel(packageManager).toString(),
-                11f
-            )
-            name.gravity = Gravity.CENTER
-            name.maxLines = 1
-            cell.addView(name)
-        }
-
-        cell.setOnClickListener {
-            val launch = Intent(Intent.ACTION_MAIN)
-                .addCategory(Intent.CATEGORY_LAUNCHER)
-                .setClassName(
-                    info.activityInfo.packageName,
-                    info.activityInfo.name
-                )
-            startActivity(launch)
-        }
-
-        return cell
+        parent.addView(
+            item,
+            LinearLayout.LayoutParams(0, dp(85), 1f)
+        )
     }
 
-    // APP DRAWER
+    private fun buildDrawer() {
+        drawer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(55), dp(18), dp(20))
+            setBackgroundColor(Color.rgb(23, 26, 34))
+            visibility = View.GONE
+        }
 
-    private fun showDrawer() {
-        setup("Applications")
+        val heading = text(
+            "All apps",
+            29f,
+            Color.WHITE,
+            true
+        )
 
-        val search = EditText(this).apply {
-            hint = "Search apps..."
-            setSingleLine()
-            textSize = 16f
+        heading.gravity = Gravity.START
+
+        drawer.addView(heading)
+
+        search = EditText(this).apply {
+            hint = "Search applications"
             setTextColor(Color.WHITE)
             setHintTextColor(Color.LTGRAY)
-            setPadding(dp(16), 0, dp(16), 0)
-            background = glass("#55444444", 25)
+            textSize = 15f
+            singleLine = true
+            setPadding(dp(18), 0, dp(18), 0)
+            background = background(
+                Color.rgb(45, 50, 63), 28
+            )
         }
 
-        content.addView(search, LinearLayout.LayoutParams(-1, dp(52)))
-
-        val scroll = ScrollView(this)
-        val grid = GridLayout(this).apply {
-            columnCount = columns
-        }
-
-        scroll.addView(grid)
-        content.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-
-        fun populate(query: String) {
-            grid.removeAllViews()
-
-            apps.filter {
-                it.loadLabel(packageManager).toString()
-                    .contains(query, true)
-            }.forEach {
-                grid.addView(
-                    appTile(it),
-                    GridLayout.LayoutParams().apply {
-                        width = resources.displayMetrics.widthPixels / columns
-                        height = dp(100)
-                    }
-                )
+        drawer.addView(
+            search,
+            LinearLayout.LayoutParams(-1, dp(52)).apply {
+                topMargin = dp(18)
+                bottomMargin = dp(15)
             }
+        )
+
+        grid = GridView(this).apply {
+            numColumns = 4
+            horizontalSpacing = dp(5)
+            verticalSpacing = dp(10)
+            stretchMode = GridView.STRETCH_COLUMN_WIDTH
+            adapter = appAdapter
         }
 
-        populate("")
+        drawer.addView(
+            grid,
+            LinearLayout.LayoutParams(-1, 0, 1f)
+        )
+
+        val close = text("Close apps", 14f, Color.LTGRAY)
+        close.setOnClickListener { hideDrawer() }
+
+        drawer.addView(
+            close,
+            LinearLayout.LayoutParams(-1, dp(45))
+        )
+
+        root.addView(drawer)
+
+        grid.setOnItemClickListener { _, _, position, _ ->
+            launchApp(filtered[position])
+        }
 
         search.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(
@@ -331,322 +343,250 @@ class MainActivity : Activity() {
                 s: CharSequence?, start: Int,
                 before: Int, count: Int
             ) {
-                populate(s.toString())
+                val query = s.toString().trim()
+
+                filtered = apps.filter {
+                    it.name.contains(query, ignoreCase = true)
+                }.toMutableList()
+
+                appAdapter.notifyDataSetChanged()
             }
 
             override fun afterTextChanged(s: Editable?) {}
         })
-
-        content.addView(button("← Home") { showHome() })
     }
 
-    // CONTROL CENTER
+    private val appAdapter = object : BaseAdapter() {
 
-    private fun showControlCenter() {
-        setup("Control Center")
+        override fun getCount() = filtered.size
 
-        val edit = row()
+        override fun getItem(position: Int) = filtered[position]
 
-        edit.addView(
-            button("✎  Edit tiles") { showSettings() },
-            LinearLayout.LayoutParams(0, dp(52), 1f)
-        )
+        override fun getItemId(position: Int) =
+            position.toLong()
 
-        edit.addView(
-            button("⚙") {
-                openSystem(Settings.ACTION_SETTINGS)
-            },
-            LinearLayout.LayoutParams(dp(65), dp(52))
-        )
+        override fun getView(
+            position: Int,
+            convertView: View?,
+            parent: ViewGroup?
+        ): View {
+            val app = filtered[position]
 
-        content.addView(edit)
+            val cell = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setPadding(dp(3), dp(8), dp(3), dp(8))
+            }
 
-        val first = row()
+            val icon = ImageView(this@MainActivity).apply {
+                setImageDrawable(app.icon)
+                scaleType = ImageView.ScaleType.FIT_CENTER
+            }
 
-        first.addView(
-            largeTile("◉", "Wi-Fi", "Settings") {
-                openSystem(Settings.ACTION_WIFI_SETTINGS)
-            },
-            LinearLayout.LayoutParams(0, dp(100), 1f)
-        )
-
-        first.addView(
-            largeTile("ᛒ", "Bluetooth", "Settings") {
-                openSystem(Settings.ACTION_BLUETOOTH_SETTINGS)
-            },
-            LinearLayout.LayoutParams(0, dp(100), 1f)
-        )
-
-        content.addView(first)
-
-        val media = column().apply {
-            background = glass("#88777777", 30)
-            setPadding(dp(18), dp(14), dp(18), dp(14))
-        }
-
-        media.addView(label("♫     MUSIC PLAYER", 13f))
-        media.addView(label("Not playing", 23f))
-
-        val controls = row()
-        listOf("⏮", "▶", "⏭").forEach {
-            controls.addView(
-                label(it, 27f),
-                LinearLayout.LayoutParams(0, dp(55), 1f)
+            cell.addView(
+                icon,
+                LinearLayout.LayoutParams(dp(48), dp(48))
             )
-        }
 
-        media.addView(controls)
-
-        val mediaLp = LinearLayout.LayoutParams(-1, dp(155))
-        mediaLp.setMargins(0, dp(12), 0, dp(12))
-        content.addView(media, mediaLp)
-
-        content.addView(label("Brightness", 15f))
-
-        val brightness = SeekBar(this).apply {
-            max = 255
-            progress = 150
-            setOnSeekBarChangeListener(
-                object : SeekBar.OnSeekBarChangeListener {
-                    override fun onProgressChanged(
-                        bar: SeekBar?, value: Int, user: Boolean
-                    ) {
-                        if (user) {
-                            val params = window.attributes
-                            params.screenBrightness =
-                                (value / 255f).coerceIn(0.05f, 1f)
-                            window.attributes = params
-                        }
-                    }
-
-                    override fun onStartTrackingTouch(bar: SeekBar?) {}
-                    override fun onStopTrackingTouch(bar: SeekBar?) {}
+            cell.addView(
+                text(app.name, 11f, Color.WHITE).apply {
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
                 }
             )
-        }
-        content.addView(brightness)
 
-        content.addView(label("Volume", 15f))
-
-        val volume = SeekBar(this).apply {
-            max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-            progress = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
-
-            setOnSeekBarChangeListener(
-                object : SeekBar.OnSeekBarChangeListener {
-                    override fun onProgressChanged(
-                        bar: SeekBar?, value: Int, user: Boolean
-                    ) {
-                        if (user) {
-                            audio.setStreamVolume(
-                                AudioManager.STREAM_MUSIC,
-                                value,
-                                0
-                            )
-                        }
-                    }
-
-                    override fun onStartTrackingTouch(bar: SeekBar?) {}
-                    override fun onStopTrackingTouch(bar: SeekBar?) {}
-                }
-            )
-        }
-
-        content.addView(volume)
-
-        val toggles = listOf(
-            "✈ Airplane" to Settings.ACTION_AIRPLANE_MODE_SETTINGS,
-            "🔕 Sound" to Settings.ACTION_SOUND_SETTINGS,
-            "▣ Display" to Settings.ACTION_DISPLAY_SETTINGS,
-            "⌁ Battery" to Settings.ACTION_BATTERY_SAVER_SETTINGS,
-            "◉ Location" to Settings.ACTION_LOCATION_SOURCE_SETTINGS,
-            "⚙ Settings" to Settings.ACTION_SETTINGS
-        )
-
-        val toggleGrid = GridLayout(this).apply {
-            columnCount = 3
-        }
-
-        toggles.forEach { item ->
-            toggleGrid.addView(
-                button(item.first) { openSystem(item.second) },
-                GridLayout.LayoutParams().apply {
-                    width = resources.displayMetrics.widthPixels / 3 - dp(20)
-                    height = dp(85)
-                    setMargins(dp(3), dp(4), dp(3), dp(4))
-                }
-            )
-        }
-
-        val scroll = ScrollView(this)
-        scroll.addView(toggleGrid)
-        content.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-
-        content.addView(button("← Home") { showHome() })
-    }
-
-    private fun largeTile(
-        icon: String,
-        title: String,
-        subtitle: String,
-        action: () -> Unit
-    ): View {
-        return column().apply {
-            background = glass("#AA777777", 32)
-            setPadding(dp(14), dp(12), dp(14), dp(12))
-            gravity = Gravity.CENTER_VERTICAL
-            addView(label(icon, 25f))
-            addView(label(title, 19f))
-            addView(label(subtitle, 13f, Color.LTGRAY))
-            setOnClickListener { action() }
+            return cell
         }
     }
 
-    // SETTINGS
+    private fun loadApps() {
+        apps.clear()
 
-    private fun showSettings() {
-        setup("Fluid settings")
+        val pm = packageManager
 
-        content.addView(button(
-            "Appearance: ${if (darkMode) "Dark" else "Light"}"
-        ) {
-            darkMode = !darkMode
-            showSettings()
-        })
+        val intent = Intent(Intent.ACTION_MAIN).apply {
+            addCategory(Intent.CATEGORY_LAUNCHER)
+        }
 
-        content.addView(button("Grid columns: $columns") {
-            columns = if (columns >= 6) 3 else columns + 1
-            showSettings()
-        })
-
-        content.addView(button(
-            "App labels: ${if (labels) "On" else "Off"}"
-        ) {
-            labels = !labels
-            showSettings()
-        })
-
-        content.addView(button("Change wallpaper") {
-            chooseWallpaper()
-        })
-
-        content.addView(button("Control Center") {
-            showControlCenter()
-        })
-
-        content.addView(button("Lock screen preview") {
-            showLockPreview()
-        })
-
-        content.addView(button("Android system settings") {
-            openSystem(Settings.ACTION_SETTINGS)
-        })
-
-        content.addView(button("Back to home") {
-            showHome()
-        })
-    }
-
-    // LOCK SCREEN PREVIEW
-
-    private fun showLockPreview() {
-        setup("Lock screen preview")
-
-        val clock = label(
-            SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()),
-            76f
-        )
-        clock.gravity = Gravity.CENTER
-        content.addView(clock)
-
-        val date = label(
-            SimpleDateFormat("EEE, MMMM dd", Locale.getDefault())
-                .format(Date()),
-            18f
-        )
-        date.gravity = Gravity.CENTER
-        content.addView(date)
-
-        val spacer = View(this)
-        content.addView(spacer, LinearLayout.LayoutParams(1, 0, 1f))
-
-        content.addView(
-            button("●   Notifications preview") {}
+        val results = pm.queryIntentActivities(
+            intent,
+            PackageManager.MATCH_ALL
         )
 
-        val bottom = row()
-
-        bottom.addView(
-            button("☼ Flashlight") {
-                Toast.makeText(
-                    this,
-                    "Use your phone's system flashlight",
-                    Toast.LENGTH_SHORT
-                ).show()
-            },
-            LinearLayout.LayoutParams(0, dp(65), 1f)
-        )
-
-        bottom.addView(
-            button("📷 Camera") {
-                openSystem(Settings.ACTION_SETTINGS)
-            },
-            LinearLayout.LayoutParams(0, dp(65), 1f)
-        )
-
-        content.addView(bottom)
-        content.addView(button("← Back") { showSettings() })
-    }
-
-    // WALLPAPER
-
-    private fun chooseWallpaper() {
-        val intent = Intent(Intent.ACTION_GET_CONTENT)
-        intent.type = "image/*"
-        startActivityForResult(intent, 200)
-    }
-
-    @Deprecated("Uses legacy activity result callback")
-    override fun onActivityResult(
-        requestCode: Int,
-        resultCode: Int,
-        data: Intent?
-    ) {
-        super.onActivityResult(requestCode, resultCode, data)
-
-        if (requestCode == 200 && resultCode == RESULT_OK) {
-            val uri: Uri = data?.data ?: return
+        for (result in results) {
+            val info = result.activityInfo
+            if (info.packageName == packageName) continue
 
             try {
-                contentResolver.openInputStream(uri)?.use {
-                    WallpaperManager.getInstance(this).setStream(it)
-                }
-
-                Toast.makeText(
-                    this,
-                    "Wallpaper applied!",
-                    Toast.LENGTH_SHORT
-                ).show()
-
-            } catch (e: Exception) {
-                Toast.makeText(
-                    this,
-                    "Wallpaper could not be applied",
-                    Toast.LENGTH_SHORT
-                ).show()
+                apps.add(
+                    AppItem(
+                        info.loadLabel(pm).toString(),
+                        info.packageName,
+                        info.loadIcon(pm)
+                    )
+                )
+            } catch (_: Exception) {
             }
+        }
+
+        apps.sortBy { it.name.lowercase() }
+        filtered = apps.toMutableList()
+
+        if (::grid.isInitialized) {
+            appAdapter.notifyDataSetChanged()
         }
     }
 
-    private fun openSystem(action: String) {
-        try {
-            startActivity(Intent(action))
-        } catch (e: Exception) {
-            startActivity(Intent(Settings.ACTION_SETTINGS))
+    private fun launchApp(app: AppItem) {
+        val intent = packageManager.getLaunchIntentForPackage(
+            app.packageName
+        )
+
+        if (intent != null) {
+            startActivity(intent)
         }
+    }
+
+    private fun showDrawer() {
+        drawer.visibility = View.VISIBLE
+        drawer.alpha = 0f
+        drawer.translationY = dp(35).toFloat()
+        drawer.animate()
+            .alpha(1f)
+            .translationY(0f)
+            .setDuration(220)
+            .start()
+
+        drawerOpen = true
+    }
+
+    private fun hideDrawer() {
+        drawer.animate()
+            .alpha(0f)
+            .translationY(dp(30).toFloat())
+            .setDuration(180)
+            .withEndAction {
+                drawer.visibility = View.GONE
+                drawer.translationY = 0f
+            }
+            .start()
+
+        drawerOpen = false
+    }
+
+    private fun openWallpaperPicker() {
+        try {
+            startActivity(
+                Intent(Intent.ACTION_SET_WALLPAPER)
+            )
+        } catch (_: Exception) {
+            Toast.makeText(
+                this, "Wallpaper picker unavailable",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    private fun openSettings() {
+        val options = arrayOf(
+            "Dark mode",
+            "Light mode",
+            "Personalization",
+            "Lock screen",
+            "About Fluid Launcher"
+        )
+
+        AlertDialog.Builder(this)
+            .setTitle("Fluid Settings")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> setDarkMode(true)
+                    1 -> setDarkMode(false)
+                    2 -> showPersonalization()
+                    3 -> startActivity(
+                        Intent(this, LockScreenActivity::class.java)
+                    )
+                    4 -> showAbout()
+                }
+            }
+            .show()
+    }
+
+    private fun setDarkMode(enabled: Boolean) {
+        prefs.edit().putBoolean("dark", enabled).apply()
+        Toast.makeText(
+            this,
+            "Restart launcher to apply theme",
+            Toast.LENGTH_SHORT
+        ).show()
+    }
+
+    private fun openControlCenter() {
+        val options = arrayOf(
+            "Wi-Fi settings",
+            "Bluetooth settings",
+            "Display settings",
+            "Sound settings"
+        )
+
+        AlertDialog.Builder(this)
+            .setTitle("Control Center")
+            .setItems(options) { _, which ->
+                val action = when (which) {
+                    0 -> android.provider.Settings.ACTION_WIFI_SETTINGS
+                    1 -> android.provider.Settings.ACTION_BLUETOOTH_SETTINGS
+                    2 -> android.provider.Settings.ACTION_DISPLAY_SETTINGS
+                    else -> android.provider.Settings.ACTION_SOUND_SETTINGS
+                }
+
+                try {
+                    startActivity(Intent(action))
+                } catch (_: Exception) {
+                    Toast.makeText(
+                        this, "Setting unavailable",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+            .show()
+    }
+
+    private fun showPersonalization() {
+        val options = arrayOf(
+            "Change wallpaper",
+            "Launcher settings",
+            "Lock screen preview"
+        )
+
+        AlertDialog.Builder(this)
+            .setTitle("Personalize")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> openWallpaperPicker()
+                    1 -> openSettings()
+                    2 -> startActivity(
+                        Intent(this, LockScreenActivity::class.java)
+                    )
+                }
+            }
+            .show()
+    }
+
+    private fun showAbout() {
+        AlertDialog.Builder(this)
+            .setTitle("Fluid Launcher")
+            .setMessage(
+                "HyperOS-inspired Android launcher\nVersion 3.0\nMade for Android 14 and above."
+            )
+            .setPositiveButton("OK", null)
+            .show()
     }
 
     override fun onBackPressed() {
-        showHome()
+        if (drawerOpen) {
+            hideDrawer()
+        } else {
+            super.onBackPressed()
+        }
     }
 }
