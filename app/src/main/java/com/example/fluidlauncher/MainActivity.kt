@@ -1,58 +1,36 @@
 package com.example.fluidlauncher
 
 import android.app.Activity
+import android.app.ActivityOptions
 import android.content.Intent
 import android.graphics.Color
-import android.graphics.Outline
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
-import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.provider.MediaStore
 import android.provider.Settings
 import android.text.Editable
-import android.text.TextUtils
 import android.text.TextWatcher
 import android.view.GestureDetector
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
-import android.view.ViewOutlineProvider
 import android.view.animation.DecelerateInterpolator
+import android.view.animation.OvershootInterpolator
 import android.view.inputmethod.InputMethodManager
 import android.widget.BaseAdapter
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.GridView
 import android.widget.HorizontalScrollView
-import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.TextClock
 import android.widget.TextView
 import kotlin.math.abs
 
-class AppEntry(val label: String, val pkg: String, val intent: Intent, val icon: Drawable)
-
-sealed class Slot {
-    abstract val span: Int
-}
-
-class AppSlot(val app: AppEntry) : Slot() {
-    override val span: Int = 1
-}
-
-class FolderSlot(val name: String, val apps: List<AppEntry>) : Slot() {
-    override val span: Int = 2
-}
-
 class MainActivity : Activity() {
-
-    private val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
-    private val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
 
     private var allApps: List<AppEntry> = emptyList()
     private var shown: List<AppEntry> = emptyList()
@@ -75,58 +53,9 @@ class MainActivity : Activity() {
     private lateinit var folderOverlay: FrameLayout
     private lateinit var folderPanel: LinearLayout
     private lateinit var detector: GestureDetector
-
-    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
-
-    private fun glass(color: Int, radiusDp: Int): GradientDrawable {
-        val d = GradientDrawable()
-        d.setColor(color)
-        d.cornerRadius = dp(radiusDp).toFloat()
-        d.setStroke(dp(1), Color.parseColor("#26FFFFFF"))
-        return d
-    }
-
-    private fun squircle(iv: ImageView) {
-        iv.clipToOutline = true
-        iv.outlineProvider = object : ViewOutlineProvider() {
-            override fun getOutline(view: View, outline: Outline) {
-                outline.setRoundRect(0, 0, view.width, view.height, view.width * 0.30f)
-            }
-        }
-    }
-
-    private fun makeTile(app: AppEntry): ImageView {
-        val iv = ImageView(this)
-        iv.setImageDrawable(app.icon)
-        iv.scaleType = ImageView.ScaleType.FIT_CENTER
-        squircle(iv)
-        return iv
-    }
-
-    private fun makeCell(): LinearLayout {
-        val cell = LinearLayout(this)
-        cell.orientation = LinearLayout.VERTICAL
-        cell.gravity = Gravity.CENTER_HORIZONTAL
-        cell.setPadding(dp(4), dp(10), dp(4), dp(10))
-        val icon = ImageView(this)
-        squircle(icon)
-        cell.addView(icon, LinearLayout.LayoutParams(dp(58), dp(58)))
-        val label = TextView(this)
-        label.setTextColor(Color.WHITE)
-        label.textSize = 11f
-        label.maxLines = 1
-        label.gravity = Gravity.CENTER
-        label.ellipsize = TextUtils.TruncateAt.END
-        val lp = LinearLayout.LayoutParams(MATCH, WRAP)
-        lp.topMargin = dp(6)
-        cell.addView(label, lp)
-        return cell
-    }
-
-    private fun bindCell(cell: LinearLayout, app: AppEntry) {
-        (cell.getChildAt(0) as ImageView).setImageDrawable(app.icon)
-        (cell.getChildAt(1) as TextView).text = app.label
-    }
+    private lateinit var cc: ControlCenter
+    private lateinit var widgets: WidgetArea
+    private lateinit var homeGrid: HomeGrid
 
     private val gridAdapter = object : BaseAdapter() {
         override fun getCount(): Int = shown.size
@@ -141,6 +70,16 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        widgets = WidgetArea(this)
+        cc = ControlCenter(this)
+        homeGrid = HomeGrid(
+            this,
+            widgets,
+            { app, v -> launch(app, v) },
+            { app -> openInfo(app) },
+            { f -> openFolder(f) }
+        )
 
         root = FrameLayout(this)
 
@@ -161,6 +100,7 @@ class MainActivity : Activity() {
         pill.gravity = Gravity.CENTER
         pill.minimumWidth = dp(120)
         pill.background = glass(Color.parseColor("#66000000"), 20)
+        pill.bounceOnPress()
         pill.setOnClickListener { if (currentPage == 0) openSearch() }
         val pillLp = LinearLayout.LayoutParams(WRAP, dp(40))
         pillLp.gravity = Gravity.CENTER_HORIZONTAL
@@ -204,7 +144,7 @@ class MainActivity : Activity() {
         grid.setPadding(dp(8), 0, dp(8), dp(48))
         grid.clipToPadding = false
         grid.adapter = gridAdapter
-        grid.setOnItemClickListener { _, _, pos, _ -> launch(shown[pos]) }
+        grid.setOnItemClickListener { _, v, pos, _ -> launch(shown[pos], v) }
         grid.setOnItemLongClickListener { _, _, pos, _ -> openInfo(shown[pos]); true }
         drawer.addView(grid, LinearLayout.LayoutParams(MATCH, MATCH))
 
@@ -224,6 +164,7 @@ class MainActivity : Activity() {
         root.addView(homeLayer, FrameLayout.LayoutParams(MATCH, MATCH))
         root.addView(drawer, FrameLayout.LayoutParams(MATCH, MATCH))
         root.addView(folderOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
+        root.addView(cc.view, FrameLayout.LayoutParams(MATCH, MATCH))
         setContentView(root)
 
         search.addTextChangedListener(object : TextWatcher {
@@ -241,10 +182,15 @@ class MainActivity : Activity() {
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
                 if (folderOpen) return false
                 if (abs(vy) < 900f || abs(vy) < abs(vx) * 1.5f) return false
-                if (vy < 0f && !drawerOpen) {
-                    setDrawer(true)
-                } else if (vy > 0f && drawerOpen && !grid.canScrollVertically(-1)) {
-                    setDrawer(false)
+                if (vy < 0f) {
+                    if (cc.isOpen) cc.close()
+                    else if (!drawerOpen) setDrawer(true)
+                } else {
+                    if (drawerOpen) {
+                        if (!grid.canScrollVertically(-1)) setDrawer(false)
+                    } else if (!cc.isOpen) {
+                        cc.open()
+                    }
                 }
                 return false
             }
@@ -254,6 +200,16 @@ class MainActivity : Activity() {
         loadApps()
     }
 
+    override fun onStart() {
+        super.onStart()
+        widgets.start()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        widgets.stop()
+    }
+
     override fun onResume() {
         super.onResume()
         loadApps()
@@ -261,6 +217,7 @@ class MainActivity : Activity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        cc.close()
         if (folderOpen) closeFolder()
         if (drawerOpen) setDrawer(false)
         currentPage = 0
@@ -269,8 +226,16 @@ class MainActivity : Activity() {
     }
 
     override fun onBackPressed() {
-        if (folderOpen) closeFolder()
+        if (cc.isOpen) cc.close()
+        else if (folderOpen) closeFolder()
         else if (drawerOpen) setDrawer(false)
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (!widgets.onResult(requestCode, resultCode)) {
+            super.onActivityResult(requestCode, resultCode, data)
+        }
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
@@ -278,7 +243,9 @@ class MainActivity : Activity() {
         if (ev.actionMasked == MotionEvent.ACTION_DOWN) startScroll = pager.scrollX
         val handled = super.dispatchTouchEvent(ev)
         val a = ev.actionMasked
-        if ((a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) && !drawerOpen && !folderOpen) {
+        if ((a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) &&
+            !drawerOpen && !folderOpen && !cc.isOpen
+        ) {
             snapPage()
         }
         return handled
@@ -325,197 +292,27 @@ class MainActivity : Activity() {
     }
 
     private fun loadApps() {
-        val main = Intent(Intent.ACTION_MAIN)
-        main.addCategory(Intent.CATEGORY_LAUNCHER)
-        val list = packageManager.queryIntentActivities(main, 0)
-        val result = ArrayList<AppEntry>()
-        for (ri in list) {
-            val pkg = ri.activityInfo.packageName
-            if (pkg == packageName) continue
-            val launchIntent = Intent(Intent.ACTION_MAIN)
-            launchIntent.addCategory(Intent.CATEGORY_LAUNCHER)
-            launchIntent.setClassName(pkg, ri.activityInfo.name)
-            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            result.add(AppEntry(ri.loadLabel(packageManager).toString(), pkg, launchIntent, ri.loadIcon(packageManager)))
-        }
-        result.sortBy { it.label.lowercase() }
-        allApps = result
-        shown = result
+        allApps = loadAllApps(this)
+        shown = allApps
         gridAdapter.notifyDataSetChanged()
-        dockPkgs = buildDock()
-        rebuildHome()
-        updatePill()
-    }
 
-    private fun buildDock(): Set<String> {
+        val dockList = dockApps(this, allApps)
+        dockPkgs = dockList.map { it.pkg }.toSet()
         dock.removeAllViews()
-        val probes = listOf(
-            Intent(Intent.ACTION_DIAL),
-            Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com")),
-            Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)
-        )
-        val used = HashSet<String>()
-        for (p in probes) {
-            val pkg = packageManager.resolveActivity(p, 0)?.activityInfo?.packageName ?: continue
-            if (!used.add(pkg)) continue
-            val app = allApps.firstOrNull { it.pkg == pkg } ?: continue
+        for (app in dockList) {
             val iv = makeTile(app)
-            iv.setOnClickListener { launch(app) }
+            iv.setOnClickListener { launch(app, iv) }
             val lp = LinearLayout.LayoutParams(dp(62), dp(62))
             lp.setMargins(dp(10), 0, dp(10), 0)
             dock.addView(iv, lp)
         }
-        return used
-    }
 
-    private fun makeSlots(): List<Slot> {
         val pool = allApps.filter { !dockPkgs.contains(it.pkg) }
-        val keys = listOf(
-            "com.discord", "com.snapchat", "com.zhiliaoapp", "com.ss.android.ugc",
-            "com.instagram", "com.whatsapp", "com.facebook.katana", "com.twitter", "org.telegram"
-        )
-        val social = pool.filter { a -> keys.any { a.pkg.startsWith(it) } }
-        val slots = ArrayList<Slot>()
-        if (social.size >= 2) {
-            slots.add(FolderSlot("Social", social))
-            for (a in pool) {
-                if (!social.contains(a)) slots.add(AppSlot(a))
-            }
-        } else {
-            for (a in pool) slots.add(AppSlot(a))
-        }
-        return slots
-    }
-
-    private fun rebuildHome() {
-        pagesBox.removeAllViews()
-        val slots = makeSlots()
-        val w = resources.displayMetrics.widthPixels
-        val side = dp(14)
-        val cellW = (w - side * 2) / 4
-        val tile = (cellW * 0.78f).toInt()
-        val rowH = tile + dp(22)
-
-        val pages = ArrayList<ArrayList<ArrayList<Slot>>>()
-        var rows = ArrayList<ArrayList<Slot>>()
-        var row = ArrayList<Slot>()
-        var col = 0
-        var cap = 3
-        for (s in slots) {
-            if (col + s.span > 4) {
-                rows.add(row)
-                row = ArrayList()
-                col = 0
-                if (rows.size >= cap) {
-                    pages.add(rows)
-                    rows = ArrayList()
-                    cap = 5
-                }
-            }
-            row.add(s)
-            col += s.span
-            if (col == 4) {
-                rows.add(row)
-                row = ArrayList()
-                col = 0
-                if (rows.size >= cap) {
-                    pages.add(rows)
-                    rows = ArrayList()
-                    cap = 5
-                }
-            }
-        }
-        if (row.isNotEmpty()) rows.add(row)
-        if (rows.isNotEmpty() || pages.isEmpty()) pages.add(rows)
-        pageCount = pages.size
+        pageCount = homeGrid.build(pagesBox, makeSlots(pool))
         if (currentPage > pageCount - 1) currentPage = pageCount - 1
-
-        for ((idx, pageRows) in pages.withIndex()) {
-            val page = LinearLayout(this)
-            page.orientation = LinearLayout.VERTICAL
-            page.setPadding(side, dp(8), side, 0)
-
-            if (idx == 0) {
-                val card = FrameLayout(this)
-                card.background = glass(Color.parseColor("#59000000"), 28)
-                val inner = LinearLayout(this)
-                inner.orientation = LinearLayout.VERTICAL
-                inner.gravity = Gravity.CENTER
-                val clock = TextClock(this)
-                clock.format12Hour = "h:mm"
-                clock.format24Hour = "HH:mm"
-                clock.textSize = 54f
-                clock.setTextColor(Color.WHITE)
-                clock.typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
-                inner.addView(clock, LinearLayout.LayoutParams(WRAP, WRAP))
-                val date = TextClock(this)
-                date.format12Hour = "EEEE, MMM d"
-                date.format24Hour = "EEEE, MMM d"
-                date.textSize = 15f
-                date.setTextColor(Color.parseColor("#E6FFFFFF"))
-                inner.addView(date, LinearLayout.LayoutParams(WRAP, WRAP))
-                card.addView(inner, FrameLayout.LayoutParams(MATCH, MATCH))
-                val cardLp = LinearLayout.LayoutParams(MATCH, dp(130))
-                cardLp.bottomMargin = dp(12)
-                page.addView(card, cardLp)
-            }
-
-            for (r in pageRows) {
-                val rowView = LinearLayout(this)
-                rowView.orientation = LinearLayout.HORIZONTAL
-                for (s in r) {
-                    val cell = FrameLayout(this)
-                    when (s) {
-                        is AppSlot -> {
-                            val iv = makeTile(s.app)
-                            iv.setOnClickListener { launch(s.app) }
-                            iv.setOnLongClickListener { openInfo(s.app); true }
-                            cell.addView(iv, FrameLayout.LayoutParams(tile, tile, Gravity.CENTER))
-                        }
-                        is FolderSlot -> {
-                            val fw = cellW * 2 - dp(8)
-                            cell.addView(makeFolderView(s, tile), FrameLayout.LayoutParams(fw, tile, Gravity.CENTER))
-                        }
-                    }
-                    rowView.addView(cell, LinearLayout.LayoutParams(0, rowH, s.span.toFloat()))
-                }
-                page.addView(rowView, LinearLayout.LayoutParams(MATCH, rowH))
-            }
-            pagesBox.addView(page, LinearLayout.LayoutParams(w, MATCH))
-        }
+        val w = resources.displayMetrics.widthPixels
         pager.post { pager.scrollTo(currentPage * w, 0) }
-    }     private fun makeFolderView(s: FolderSlot, h: Int): View {
-        val box = LinearLayout(this)
-        box.orientation = LinearLayout.HORIZONTAL
-        box.gravity = Gravity.CENTER
-        box.background = glass(Color.parseColor("#40FFFFFF"), 28)
-        box.setOnClickListener { openFolder(s) }
-
-        val big = (h * 0.60f).toInt()
-        for (a in s.apps.take(2)) {
-            val lp = LinearLayout.LayoutParams(big, big)
-            lp.setMargins(dp(5), 0, dp(5), 0)
-            box.addView(makeTile(a), lp)
-        }
-        val mini = (h * 0.27f).toInt()
-        val cluster = LinearLayout(this)
-        cluster.orientation = LinearLayout.VERTICAL
-        val rest = s.apps.drop(2).take(4)
-        for (ri in 0..1) {
-            val rr = LinearLayout(this)
-            rr.orientation = LinearLayout.HORIZONTAL
-            for (ci in 0..1) {
-                val a = rest.getOrNull(ri * 2 + ci)
-                val lp = LinearLayout.LayoutParams(mini, mini)
-                lp.setMargins(dp(2), dp(2), dp(2), dp(2))
-                if (a != null) rr.addView(makeTile(a), lp) else rr.addView(View(this), lp)
-            }
-            cluster.addView(rr, LinearLayout.LayoutParams(WRAP, WRAP))
-        }
-        val clp = LinearLayout.LayoutParams(WRAP, WRAP)
-        clp.setMargins(dp(4), 0, dp(4), 0)
-        box.addView(cluster, clp)
-        return box
+        updatePill()
     }
 
     private fun openFolder(s: FolderSlot) {
@@ -536,7 +333,8 @@ class MainActivity : Activity() {
                 if (app != null) {
                     val cell = makeCell()
                     bindCell(cell, app)
-                    cell.setOnClickListener { launch(app) }
+                    cell.bounceOnPress()
+                    cell.setOnClickListener { launch(app, cell) }
                     cell.setOnLongClickListener { openInfo(app); true }
                     row.addView(cell, lp)
                 } else {
@@ -546,13 +344,21 @@ class MainActivity : Activity() {
             folderPanel.addView(row, LinearLayout.LayoutParams(MATCH, WRAP))
             i += 4
         }
-        folderOverlay.visibility = View.VISIBLE
         folderOpen = true
+        folderOverlay.alpha = 0f
+        folderOverlay.visibility = View.VISIBLE
+        folderOverlay.animate().alpha(1f).setDuration(180).start()
+        folderPanel.scaleX = 0.8f
+        folderPanel.scaleY = 0.8f
+        folderPanel.animate().scaleX(1f).scaleY(1f).setDuration(320)
+            .setInterpolator(OvershootInterpolator(1.4f)).start()
     }
 
     private fun closeFolder() {
-        folderOverlay.visibility = View.GONE
         folderOpen = false
+        folderOverlay.animate().alpha(0f).setDuration(150)
+            .withEndAction { if (!folderOpen) folderOverlay.visibility = View.GONE }
+            .start()
     }
 
     private fun openSearch() {
@@ -571,7 +377,7 @@ class MainActivity : Activity() {
         if (open) drawer.visibility = View.VISIBLE
         drawer.animate()
             .translationY(if (open) 0f else h)
-            .setDuration(320)
+            .setDuration(340)
             .setInterpolator(DecelerateInterpolator(1.6f))
             .withEndAction { if (!open) drawer.visibility = View.INVISIBLE }
             .start()
@@ -579,7 +385,7 @@ class MainActivity : Activity() {
             .alpha(if (open) 0f else 1f)
             .scaleX(if (open) 0.92f else 1f)
             .scaleY(if (open) 0.92f else 1f)
-            .setDuration(320)
+            .setDuration(340)
             .start()
         if (Build.VERSION.SDK_INT >= 31) {
             try {
@@ -596,9 +402,14 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun launch(app: AppEntry) {
+    private fun launch(app: AppEntry, from: View?) {
         try {
-            startActivity(app.intent)
+            if (from != null) {
+                val opts = ActivityOptions.makeScaleUpAnimation(from, 0, 0, from.width, from.height)
+                startActivity(app.intent, opts.toBundle())
+            } else {
+                startActivity(app.intent)
+            }
         } catch (e: Exception) {
         }
         if (folderOpen) closeFolder()
