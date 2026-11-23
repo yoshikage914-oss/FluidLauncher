@@ -58,4 +58,4 @@ class SettingsActivity : Activity() {
         lp.bottomMargin = dp(12)
         root.addView(t, lp)
     }
-} 
+startActivity(Intent(this, LockScreenActivity::class.java))
