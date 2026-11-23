@@ -1,7 +1,5 @@
 package com.example.fluidlauncher
-
 package com.example.fluidlauncher
-
 import android.app.Activity
 import android.app.WallpaperManager
 import android.content.Intent
@@ -17,13 +15,10 @@ import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
-
 class SettingsActivity : Activity() {
-
     private val prefs by lazy {
         getSharedPreferences("fluid_settings", MODE_PRIVATE)
     }
-
     private val white = Color.WHITE
     private val muted = 0xFFAAAAAA.toInt()
     private val backgroundColor = 0xFF101114.toInt()
@@ -55,13 +50,11 @@ class SettingsActivity : Activity() {
             }
         }
     }
-
     private fun section(title: String) {
         val heading = text(title, 14f, muted, true)
         heading.setPadding(dp(5), dp(22), 0, dp(10))
         root.addView(heading)
     }
-
     private fun setting(
         title: String,
         description: String,
@@ -75,13 +68,10 @@ class SettingsActivity : Activity() {
             isFocusable = true
             setOnClickListener { action() }
         }
-
         card.addView(text(title, 16f, white, true))
-
         val subtitle = text(description, 12f, muted)
         subtitle.setPadding(0, dp(5), 0, 0)
         card.addView(subtitle)
-
         root.addView(
             card,
             LinearLayout.LayoutParams(-1, -2).apply {
@@ -89,29 +79,23 @@ class SettingsActivity : Activity() {
             }
         )
     }
-
-    override fun onCreate(savedInstanceState: Bundle?) {
+override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         val scroll = ScrollView(this).apply {
             setBackgroundColor(backgroundColor)
             isFillViewport = true
         }
-
         root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(35), dp(20), dp(30))
         }
-
         root.addView(text("Settings", 32f, white, true))
         root.addView(
             text("Customize your Fluid Launcher", 14f, muted).apply {
                 setPadding(0, dp(5), 0, dp(18))
             }
         )
-
         section("PERSONALIZATION")
-
         setting(
             "Wallpaper",
             "Choose a wallpaper for your home screen"
@@ -128,7 +112,6 @@ class SettingsActivity : Activity() {
                 ).show()
             }
         }
-
         setting(
             "Lock screen",
             "Preview the Fluid lock screen"
@@ -137,20 +120,16 @@ class SettingsActivity : Activity() {
                 Intent(this, LockScreenActivity::class.java)
             )
         }
-
         section("APPEARANCE")
-
         val darkMode = Switch(this).apply {
             text = "Dark mode"
             textSize = 16f
             setTextColor(white)
             isChecked = prefs.getBoolean("dark_mode", true)
-
             setOnCheckedChangeListener { _, checked ->
                 prefs.edit()
                     .putBoolean("dark_mode", checked)
                     .apply()
-
                 Toast.makeText(
                     this@SettingsActivity,
                     if (checked) "Dark mode enabled"
@@ -159,19 +138,16 @@ class SettingsActivity : Activity() {
                 ).show()
             }
         }
-
         root.addView(
             darkMode,
             LinearLayout.LayoutParams(-1, dp(55))
         )
-
         val iconTitle = text(
             "Icon size",
             16f,
             white,
             true
         )
-
         iconTitle.setPadding(0, dp(18), 0, dp(5))
         root.addView(iconTitle)
 
@@ -181,11 +157,9 @@ class SettingsActivity : Activity() {
             muted
         )
         root.addView(iconValue)
-
         val iconSlider = SeekBar(this).apply {
             max = 50
             progress = prefs.getInt("icon_size", 100) - 75
-
             setOnSeekBarChangeListener(
                 object : SeekBar.OnSeekBarChangeListener {
                     override fun onProgressChanged(
@@ -199,7 +173,6 @@ class SettingsActivity : Activity() {
                             .putInt("icon_size", size)
                             .apply()
                     }
-
                     override fun onStartTrackingTouch(
                         seekBar: SeekBar?
                     ) {}
@@ -210,14 +183,11 @@ class SettingsActivity : Activity() {
                 }
             )
         }
-
         root.addView(
             iconSlider,
             LinearLayout.LayoutParams(-1, dp(55))
         )
-
         section("ABOUT")
-
         setting(
             "Fluid Launcher",
             "Version 2.0 • HyperOS-inspired edition"
@@ -228,7 +198,6 @@ class SettingsActivity : Activity() {
                 Toast.LENGTH_SHORT
             ).show()
         }
-
         setting(
             "Reset preferences",
             "Restore the launcher's default settings"
@@ -240,12 +209,10 @@ class SettingsActivity : Activity() {
                 Toast.LENGTH_SHORT
             ).show()
         }
-
         scroll.addView(root)
         setContentView(scroll)
     }
 }
-
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
@@ -263,33 +230,25 @@ import android.text.TextWatcher
 import android.text.Editable
 import android.widget.TextClock
 import kotlin.math.abs
-
 class MainActivity : Activity() {
-
     private val prefs by lazy {
         getSharedPreferences("fluid_launcher", MODE_PRIVATE)
     }
-
     private lateinit var root: FrameLayout
     private lateinit var home: LinearLayout
     private lateinit var drawer: LinearLayout
     private lateinit var grid: GridView
     private lateinit var search: EditText
-
     private var apps = mutableListOf<AppItem>()
     private var filtered = mutableListOf<AppItem>()
-
     private var startY = 0f
     private var drawerOpen = false
-
     private val darkMode get() = prefs.getBoolean("dark", true)
-
     private data class AppItem(
         val name: String,
         val packageName: String,
         val icon: android.graphics.drawable.Drawable
     )
-
     private fun dp(value: Int): Int =
         (value * resources.displayMetrics.density).toInt()
 
@@ -299,7 +258,6 @@ class MainActivity : Activity() {
             cornerRadius = dp(radius).toFloat()
         }
     }
-
     private fun text(
         value: String,
         size: Float,
@@ -312,32 +270,25 @@ class MainActivity : Activity() {
         gravity = Gravity.CENTER
         if (bold) typeface = Typeface.DEFAULT_BOLD
     }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
-
         window.decorView.systemUiVisibility =
             View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
             View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
             View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-
         buildHome()
         loadApps()
     }
-
     private fun buildHome() {
         root = FrameLayout(this)
-
         home = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(dp(18), dp(55), dp(18), dp(25))
             setBackgroundColor(Color.rgb(18, 20, 27))
         }
-
         // Top date
         val date = TextClock(this).apply {
             format12Hour = "EEEE, d MMMM"
@@ -345,9 +296,7 @@ class MainActivity : Activity() {
             textSize = 15f
             setTextColor(Color.LTGRAY)
         }
-
         home.addView(date)
-
         // Large HyperOS-inspired clock
         val clock = TextClock(this).apply {
             format12Hour = "h:mm"
@@ -360,12 +309,10 @@ class MainActivity : Activity() {
             )
             gravity = Gravity.CENTER
         }
-
         home.addView(
             clock,
             LinearLayout.LayoutParams(-1, dp(125))
         )
-
         // Weather card placeholder
         val weather = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -375,68 +322,55 @@ class MainActivity : Activity() {
                 Color.rgb(38, 43, 55), 25
             )
         }
-
         weather.addView(
             text("☀", 30f, Color.WHITE)
         )
-
         weather.addView(
             text("  Weather  •  Add weather widget", 14f, Color.WHITE)
         )
-
         home.addView(
             weather,
             LinearLayout.LayoutParams(-1, dp(75)).apply {
                 topMargin = dp(18)
             }
         )
-
         // Quick shortcuts
         val shortcuts = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
         }
-
         addShortcut(shortcuts, "Apps", "▦") {
             showDrawer()
         }
-
         addShortcut(shortcuts, "Settings", "⚙") {
             openSettings()
         }
-
         addShortcut(shortcuts, "Wallpaper", "◈") {
             openWallpaperPicker()
         }
-
         addShortcut(shortcuts, "Control", "☷") {
             openControlCenter()
         }
-
         home.addView(
             shortcuts,
             LinearLayout.LayoutParams(-1, dp(100)).apply {
                 topMargin = dp(12)
             }
         )
-
         val spacer = Space(this)
         home.addView(
             spacer,
             LinearLayout.LayoutParams(1, 0, 1f)
         )
-
         // App drawer button
         val appButton = text(
             "Swipe up or tap to open apps",
             13f,
             Color.LTGRAY
         )
-
         appButton.setOnClickListener {
             showDrawer()
         }
-
         home.addView(appButton)
 
         // Bottom dock
@@ -448,14 +382,12 @@ class MainActivity : Activity() {
                 Color.rgb(43, 48, 61), 32
             )
         }
-
         home.addView(
             dock,
             LinearLayout.LayoutParams(-1, dp(75)).apply {
                 topMargin = dp(15)
             }
         )
-
         root.addView(home)
 
         buildDrawer()
@@ -466,25 +398,20 @@ class MainActivity : Activity() {
                     startY = event.y
                     true
                 }
-
                 MotionEvent.ACTION_UP -> {
                     val difference = startY - event.y
                     if (difference > dp(65)) showDrawer()
                     true
                 }
-
                 else -> true
             }
         }
-
         home.setOnLongClickListener {
             showPersonalization()
             true
         }
-
         setContentView(root)
     }
-
     private fun addShortcut(
         parent: LinearLayout,
         title: String,
@@ -756,7 +683,6 @@ class MainActivity : Activity() {
             }
             .show()
     }
-
     private fun setDarkMode(enabled: Boolean) {
         prefs.edit().putBoolean("dark", enabled).apply()
         Toast.makeText(
@@ -765,7 +691,6 @@ class MainActivity : Activity() {
             Toast.LENGTH_SHORT
         ).show()
     }
-
     private fun openControlCenter() {
         val options = arrayOf(
             "Wi-Fi settings",
@@ -773,7 +698,6 @@ class MainActivity : Activity() {
             "Display settings",
             "Sound settings"
         )
-
         AlertDialog.Builder(this)
             .setTitle("Control Center")
             .setItems(options) { _, which ->
@@ -783,7 +707,6 @@ class MainActivity : Activity() {
                     2 -> android.provider.Settings.ACTION_DISPLAY_SETTINGS
                     else -> android.provider.Settings.ACTION_SOUND_SETTINGS
                 }
-
                 try {
                     startActivity(Intent(action))
                 } catch (_: Exception) {
@@ -795,14 +718,12 @@ class MainActivity : Activity() {
             }
             .show()
     }
-
     private fun showPersonalization() {
         val options = arrayOf(
             "Change wallpaper",
             "Launcher settings",
             "Lock screen preview"
         )
-
         AlertDialog.Builder(this)
             .setTitle("Personalize")
             .setItems(options) { _, which ->
@@ -816,7 +737,6 @@ class MainActivity : Activity() {
             }
             .show()
     }
-
     private fun showAbout() {
         AlertDialog.Builder(this)
             .setTitle("Fluid Launcher")
@@ -826,7 +746,6 @@ class MainActivity : Activity() {
             .setPositiveButton("OK", null)
             .show()
     }
-
     override fun onBackPressed() {
         if (drawerOpen) {
             hideDrawer()
