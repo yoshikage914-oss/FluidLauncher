@@ -1114,4 +1114,4 @@ class WidgetArea(private val act: Activity) {
         }
         return true
     }
-}
+} 
